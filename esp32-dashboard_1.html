@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verdant — ESP32 EnviroMonitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0b0f0c;
+    --surface:   #111810;
+    --card:      #161e14;
+    --border:    #1f2e1c;
+    --phosphor:  #39ff6a;
+    --phosphor2: #22c44a;
+    --dim:       #2a3d28;
+    --text:      #c8ddc6;
+    --muted:     #5a7358;
+    --warn:      #f5a623;
+    --danger:    #e84040;
+    --co2-color: #4eb5ff;
+    --moisture:  #45d4fa;
+    --light:     #ffe066;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo svg { flex-shrink: 0; }
+  .logo-wordmark {
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .logo-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 17px; font-weight: 600;
+    color: var(--text); letter-spacing: 0.04em;
+    line-height: 1;
+  }
+  .logo-name em { color: var(--phosphor); font-style: normal; }
+  .logo-tagline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; color: var(--muted); letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .status-pill {
+    display: flex; align-items: center; gap: 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--muted);
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--card);
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--phosphor);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .status-dot.offline { background: var(--danger); animation: none; }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .ip-input-wrap { display: flex; align-items: center; gap: 8px; }
+  .ip-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .ip-input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--phosphor);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 5px; width: 150px; outline: none;
+    transition: border-color 0.2s;
+  }
+  .ip-input:focus { border-color: var(--phosphor2); }
+  .connect-btn {
+    padding: 5px 14px;
+    background: transparent;
+    border: 1px solid var(--phosphor2);
+    color: var(--phosphor);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; border-radius: 5px; cursor: pointer;
+    transition: background 0.2s;
+  }
+  .connect-btn:hover { background: var(--dim); }
+  .feedback-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px; border-radius: 5px; cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .feedback-btn:hover { border-color: var(--phosphor2); color: var(--text); }
+  .feedback-btn svg { flex-shrink: 0; }
+
+  /* ── MAIN GRID ── */
+  main {
+    padding: 24px 28px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 340px;
+    grid-template-rows: auto auto auto;
+    gap: 16px;
+    align-items: start;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--dim), transparent);
+  }
+  .card-label {
+    font-size: 10px; font-weight: 500; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-label .icon { font-size: 13px; }
+
+  /* ── O2 ── */
+  .o2-card { grid-column: 1; display: flex; flex-direction: column; align-items: center; }
+  .o2-ring-wrap {
+    position: relative; width: 160px; height: 160px;
+    margin: 8px auto 16px;
+  }
+  .o2-ring-wrap svg { position: absolute; top: 0; left: 0; }
+  .ring-track { fill: none; stroke: var(--dim); stroke-width: 6; }
+  .ring-fill {
+    fill: none; stroke: var(--phosphor); stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 408; stroke-dashoffset: 408;
+    transform: rotate(-90deg); transform-origin: center;
+    transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1), stroke 0.6s;
+    filter: drop-shadow(0 0 6px var(--phosphor));
+  }
+  .ring-glow {
+    fill: none; stroke: var(--phosphor); stroke-width: 12;
+    stroke-linecap: round;
+    stroke-dasharray: 408; stroke-dashoffset: 408;
+    transform: rotate(-90deg); transform-origin: center;
+    opacity: 0.12;
+    transition: stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1);
+    animation: breathe-ring 4s ease-in-out infinite;
+  }
+  @keyframes breathe-ring { 0%,100% { opacity: 0.12; } 50% { opacity: 0.22; } }
+  .ring-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .big-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 34px; font-weight: 700; color: var(--phosphor);
+    line-height: 1; letter-spacing: -0.02em;
+    text-shadow: 0 0 20px rgba(57,255,106,0.4);
+  }
+  .big-unit { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sensor-status { font-size: 11px; color: var(--muted); text-align: center; }
+
+  /* ── CO2 ── */
+  .co2-card { grid-column: 2; }
+  .bar-chart { margin-top: 8px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .bar-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); width: 32px; text-align: right; }
+  .bar-track { flex: 1; height: 6px; background: var(--dim); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 1s cubic-bezier(0.4,0,0.2,1); }
+  .bar-val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--co2-color); width: 62px; }
+  .co2-main { display: flex; align-items: baseline; gap: 6px; margin: 12px 0; }
+  .co2-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 42px; font-weight: 700; color: var(--co2-color);
+    text-shadow: 0 0 20px rgba(78,181,255,0.35); line-height: 1;
+  }
+  .co2-unit { font-size: 13px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .threshold-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 3px; display: inline-block; margin-top: 4px;
+  }
+  .threshold-normal { background: rgba(57,255,106,0.1); color: var(--phosphor2); border: 1px solid rgba(57,255,106,0.2); }
+  .threshold-warn   { background: rgba(245,166,35,0.1);  color: var(--warn);      border: 1px solid rgba(245,166,35,0.2); }
+  .threshold-danger { background: rgba(232,64,64,0.1);   color: var(--danger);    border: 1px solid rgba(232,64,64,0.2); }
+
+  /* ── SOIL / LIGHT ── */
+  .soil-card { grid-column: 3; }
+  .light-card { grid-column: 1; grid-row: 2; }
+  .gauge-wrap { margin: 12px 0; }
+  .gauge-track { height: 10px; background: var(--dim); border-radius: 5px; overflow: hidden; margin-bottom: 6px; }
+  .gauge-fill { height: 100%; border-radius: 5px; transition: width 1.2s cubic-bezier(0.4,0,0.2,1); }
+  .gauge-fill.moisture { background: linear-gradient(90deg, #1a6e8a, var(--moisture)); box-shadow: 0 0 8px rgba(69,212,250,0.4); }
+  .gauge-fill.light    { background: linear-gradient(90deg, #8a6000, var(--light));    box-shadow: 0 0 8px rgba(255,224,102,0.4); }
+  .gauge-labels { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
+  .gauge-value { font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+  .gauge-value.moisture { color: var(--moisture); text-shadow: 0 0 16px rgba(69,212,250,0.35); }
+  .gauge-value.light    { color: var(--light);    text-shadow: 0 0 16px rgba(255,224,102,0.35); }
+  .gauge-sub { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  /* ── HISTORY ── */
+  .history-card { grid-column: 1 / 4; grid-row: 3; }
+  .sparkline-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 12px; }
+  .sparkline-title { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.1em; }
+  canvas.spark { width: 100%; height: 60px; display: block; border-radius: 4px; }
+  .spark-current { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); margin-top: 4px; text-align: right; }
+
+  /* ── CAM ── */
+  .cam-panel { grid-column: 4; grid-row: 1 / 4; display: flex; flex-direction: column; gap: 16px; }
+  .cam-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .cam-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; border-bottom: 1px solid var(--border); }
+  .cam-title { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); animation: pulse-dot 1.4s ease-in-out infinite; }
+  .cam-controls { display: flex; gap: 8px; }
+  .cam-btn { background: var(--dim); border: none; color: var(--muted); font-size: 13px; width: 26px; height: 26px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
+  .cam-btn:hover { background: var(--border); color: var(--text); }
+  .cam-feed-wrap { position: relative; background: #080d08; aspect-ratio: 4/3; }
+  .cam-feed { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #050905; }
+  .cam-placeholder-icon { font-size: 38px; opacity: 0.3; }
+  .cam-placeholder-text { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); text-align: center; line-height: 1.7; }
+  .scan-line { position: absolute; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(57,255,106,0.3), transparent); animation: scan 3s linear infinite; top: 0; pointer-events: none; }
+  @keyframes scan { from { top: 0; } to { top: 100%; } }
+  .cam-footer { padding: 8px 16px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .cam-url-input { background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 10px; border-radius: 5px; width: 180px; outline: none; transition: border-color 0.2s; }
+  .cam-url-input:focus { border-color: var(--phosphor2); }
+  .cam-load-btn { padding: 5px 12px; background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 11px; border-radius: 5px; cursor: pointer; transition: border-color 0.2s, color 0.2s; }
+  .cam-load-btn:hover { border-color: var(--phosphor2); color: var(--phosphor); }
+
+  /* ── LOG ── */
+  .log-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .log-header { padding: 12px 16px 8px; border-bottom: 1px solid var(--border); font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .log-body { padding: 10px 16px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); line-height: 1.9; max-height: 130px; overflow-y: auto; }
+  .log-body .ts { color: var(--dim); }
+  .log-body .ok { color: var(--phosphor); }
+  .log-body .warn { color: var(--warn); }
+  .log-body .err { color: var(--danger); }
+
+  /* ── FOOTER ── */
+  footer { padding: 12px 28px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: space-between; align-items: center; }
+  .footer-left { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
+  .footer-left span { color: var(--phosphor2); }
+  .poll-rate { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); }
+
+  /* ══════════════════════════════════
+     FEEDBACK MODAL
+  ══════════════════════════════════ */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(5, 10, 6, 0.85);
+    backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 480px; max-width: calc(100vw - 32px);
+    max-height: 90vh; overflow-y: auto;
+    padding: 32px;
+    position: relative;
+    transform: translateY(16px); transition: transform 0.25s;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+
+  .modal-close {
+    position: absolute; top: 16px; right: 16px;
+    background: var(--dim); border: none; color: var(--muted);
+    width: 28px; height: 28px; border-radius: 6px;
+    cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .modal-close:hover { background: var(--border); color: var(--text); }
+
+  .modal-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .modal-title { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .modal-sub { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+
+  /* stars */
+  .stars-row { display: flex; gap: 8px; margin-bottom: 20px; }
+  .star {
+    width: 38px; height: 38px; cursor: pointer;
+    color: var(--dim); font-size: 28px; line-height: 1;
+    transition: color 0.15s, transform 0.1s;
+    user-select: none;
+  }
+  .star:hover, .star.active { color: var(--light); transform: scale(1.15); }
+  .star-label { font-size: 11px; color: var(--muted); margin-top: -8px; margin-bottom: 18px; font-family: 'JetBrains Mono', monospace; min-height: 16px; }
+
+  /* category chips */
+  .chips-label { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .chip {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px; color: var(--muted);
+    cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s;
+    user-select: none;
+  }
+  .chip:hover { border-color: var(--phosphor2); color: var(--text); }
+  .chip.selected { border-color: var(--phosphor2); color: var(--phosphor); background: rgba(57,255,106,0.07); }
+
+  /* textarea */
+  .fb-label { font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .fb-textarea {
+    width: 100%; min-height: 90px;
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px;
+    padding: 12px 14px; border-radius: 8px; outline: none; resize: vertical;
+    transition: border-color 0.2s; line-height: 1.6;
+  }
+  .fb-textarea:focus { border-color: var(--phosphor2); }
+  .fb-textarea::placeholder { color: var(--dim); }
+
+  .fb-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .fb-submit {
+    flex: 1; padding: 10px;
+    background: linear-gradient(135deg, #22c44a, #1a9e3a);
+    border: none; border-radius: 8px;
+    color: #fff; font-family: 'Inter', sans-serif;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s, transform 0.1s;
+  }
+  .fb-submit:hover { opacity: 0.9; transform: translateY(-1px); }
+  .fb-submit:active { transform: translateY(0); }
+  .fb-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .fb-cancel { padding: 10px 18px; background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: 'Inter', sans-serif; font-size: 13px; border-radius: 8px; cursor: pointer; transition: border-color 0.2s; }
+  .fb-cancel:hover { border-color: var(--muted); }
+
+  /* AI response area */
+  .ai-response {
+    margin-top: 20px;
+    padding: 14px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: none;
+  }
+  .ai-response.visible { display: block; }
+  .ai-response-header {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; font-weight: 500; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--phosphor2); margin-bottom: 10px;
+  }
+  .ai-spinner {
+    width: 12px; height: 12px; border: 2px solid var(--dim);
+    border-top-color: var(--phosphor); border-radius: 50%;
+    animation: spin 0.7s linear infinite; display: none;
+  }
+  .ai-spinner.active { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .ai-text { font-size: 13px; color: var(--text); line-height: 1.7; white-space: pre-wrap; }
+
+  /* success state */
+  .fb-success { display: none; text-align: center; padding: 20px 0; }
+  .fb-success.visible { display: block; }
+  .fb-success-icon { font-size: 48px; margin-bottom: 12px; }
+  .fb-success-title { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .fb-success-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 1fr 1fr; }
+    .cam-panel { grid-column: 1 / 3; grid-row: auto; }
+    .history-card { grid-column: 1 / 3; }
+    .light-card { grid-column: 2; grid-row: 2; }
+  }
+  @media (max-width: 680px) {
+    main { grid-template-columns: 1fr; padding: 16px; }
+    .cam-panel, .history-card { grid-column: 1; }
+    .light-card { grid-row: auto; }
+    .sparkline-grid { grid-template-columns: 1fr 1fr; }
+    header { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
+    .ip-label { display: none; }
+    .logo-tagline { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<header>
+  <div class="logo">
+    <!-- Verdant logo: leaf-circuit SVG -->
+    <svg width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="38" height="38" rx="9" fill="#0d1a0d"/>
+      <!-- leaf shape -->
+      <path d="M19 6 C19 6, 30 10, 30 20 C30 26, 25 31, 19 32 C13 31, 8 26, 8 20 C8 10, 19 6, 19 6Z"
+            fill="none" stroke="#39ff6a" stroke-width="1.5" opacity="0.9"/>
+      <!-- circuit vein: centre -->
+      <line x1="19" y1="32" x2="19" y2="14" stroke="#39ff6a" stroke-width="1.2" stroke-linecap="round"/>
+      <!-- circuit vein: left -->
+      <polyline points="19,22 14,18 11,18" stroke="#22c44a" stroke-width="1" stroke-linecap="round" fill="none"/>
+      <!-- circuit vein: right -->
+      <polyline points="19,18 24,15 27,15" stroke="#22c44a" stroke-width="1" stroke-linecap="round" fill="none"/>
+      <!-- nodes -->
+      <circle cx="11" cy="18" r="1.8" fill="#39ff6a"/>
+      <circle cx="27" cy="15" r="1.8" fill="#39ff6a"/>
+      <circle cx="19" cy="14" r="1.8" fill="#39ff6a" opacity="0.6"/>
+      <!-- glow dot at tip -->
+      <circle cx="19" cy="8" r="1.2" fill="#39ff6a" opacity="0.4"/>
+    </svg>
+    <div class="logo-wordmark">
+      <div class="logo-name">Ver<em>dant</em></div>
+      <div class="logo-tagline">ESP32 · EnviroMonitor</div>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <div class="ip-input-wrap">
+      <span class="ip-label">ESP32 IP</span>
+      <input class="ip-input" id="esp32ip" type="text" placeholder="192.168.1.x" value="192.168.1.100"/>
+      <button class="connect-btn" onclick="connectESP32()">Connect</button>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot offline" id="statusDot"></div>
+      <span id="statusText">Disconnected</span>
+    </div>
+    <button class="feedback-btn" onclick="openFeedback()">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M7 1C3.69 1 1 3.35 1 6.25C1 7.77 1.72 9.13 2.86 10.1L2.5 13L5.5 11.4C5.97 11.49 6.48 11.5 7 11.5C10.31 11.5 13 9.15 13 6.25C13 3.35 10.31 1 7 1Z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Feedback
+    </button>
+  </div>
+</header>
+
+<!-- ══ MAIN ══ -->
+<main>
+
+  <!-- O2 -->
+  <div class="card o2-card">
+    <div class="card-label"><span class="icon">🌿</span> Oxygen (O₂)</div>
+    <div class="o2-ring-wrap">
+      <svg viewBox="0 0 160 160" width="160" height="160">
+        <circle class="ring-track" cx="80" cy="80" r="65"/>
+        <circle class="ring-glow"  cx="80" cy="80" r="65" id="ringGlow"/>
+        <circle class="ring-fill"  cx="80" cy="80" r="65" id="ringFill"/>
+      </svg>
+      <div class="ring-center">
+        <div class="big-val" id="o2Val">—</div>
+        <div class="big-unit">% vol</div>
+      </div>
+    </div>
+    <div class="sensor-status" id="o2Status">Awaiting data…</div>
+  </div>
+
+  <!-- CO2 -->
+  <div class="card co2-card">
+    <div class="card-label"><span class="icon">💨</span> Carbon Dioxide (CO₂)</div>
+    <div class="co2-main">
+      <div class="co2-num" id="co2Val">—</div>
+      <div class="co2-unit">ppm</div>
+    </div>
+    <div id="co2Badge" class="threshold-label threshold-normal">Normal</div>
+    <div class="bar-chart" style="margin-top:18px;">
+      <div class="bar-row">
+        <span class="bar-label" style="font-size:9px;">Normal</span>
+        <div class="bar-track"><div class="bar-fill" style="background:var(--phosphor2);width:40%"></div></div>
+        <span class="bar-val" style="color:var(--phosphor2);">400 ppm</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label" style="font-size:9px;">Current</span>
+        <div class="bar-track"><div class="bar-fill" style="background:var(--co2-color);width:0%" id="co2Bar"></div></div>
+        <span class="bar-val" id="co2BarLabel">— ppm</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label" style="font-size:9px;">Danger</span>
+        <div class="bar-track"><div class="bar-fill" style="background:var(--danger);width:100%"></div></div>
+        <span class="bar-val" style="color:var(--danger);">5000 ppm</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Soil -->
+  <div class="card soil-card">
+    <div class="card-label"><span class="icon">🌱</span> Soil Moisture</div>
+    <div class="gauge-value moisture" id="moistureVal">—</div>
+    <div class="gauge-sub" id="moistureDesc">—</div>
+    <div class="gauge-wrap" style="margin-top:14px;">
+      <div class="gauge-track"><div class="gauge-fill moisture" id="moistureBar" style="width:0%"></div></div>
+      <div class="gauge-labels"><span>Dry 0%</span><span>50%</span><span>100% Sat.</span></div>
+    </div>
+  </div>
+
+  <!-- Light -->
+  <div class="card light-card" style="grid-column:1;grid-row:2;">
+    <div class="card-label"><span class="icon">☀️</span> Light Level</div>
+    <div class="gauge-value light" id="lightVal">—</div>
+    <div class="gauge-sub" id="lightDesc">—</div>
+    <div class="gauge-wrap" style="margin-top:14px;">
+      <div class="gauge-track"><div class="gauge-fill light" id="lightBar" style="width:0%"></div></div>
+      <div class="gauge-labels"><span>Dark</span><span>50k lx</span><span>100k lx</span></div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="card" style="grid-column:2;grid-row:2;">
+    <div class="card-label"><span class="icon">📊</span> Summary</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;line-height:2.1;color:var(--muted);">
+      <div>O₂&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--text)" id="sumO2">—</span></div>
+      <div>CO₂&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--text)" id="sumCO2">—</span></div>
+      <div>Moisture&nbsp;<span style="color:var(--text)" id="sumMoist">—</span></div>
+      <div>Light&nbsp;&nbsp;&nbsp;<span style="color:var(--text)" id="sumLight">—</span></div>
+      <div style="margin-top:10px;font-size:10px;color:var(--dim);">Last update</div>
+      <div style="color:var(--phosphor2)" id="lastUpdate">—</div>
+    </div>
+  </div>
+
+  <!-- Config -->
+  <div class="card" style="grid-column:3;grid-row:2;">
+    <div class="card-label"><span class="icon">⚙️</span> Config</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:2.1;">
+      <div>Poll interval</div>
+      <select id="pollSelect" onchange="setPollRate()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:10px;padding:3px 8px;border-radius:4px;margin-bottom:10px;">
+        <option value="2000">2 s</option>
+        <option value="5000" selected>5 s</option>
+        <option value="10000">10 s</option>
+        <option value="30000">30 s</option>
+      </select>
+      <div>Endpoint path</div>
+      <input id="endpointPath" value="/sensors" style="background:var(--bg);border:1px solid var(--border);color:var(--phosphor);font-family:inherit;font-size:10px;padding:3px 8px;border-radius:4px;width:100%;outline:none;margin-bottom:10px;">
+      <div style="font-size:9px;color:var(--dim);">ESP32 returns JSON:<br>{ o2, co2, moisture, light }</div>
+    </div>
+  </div>
+
+  <!-- Sparklines -->
+  <div class="card history-card">
+    <div class="card-label"><span class="icon">📈</span> Trend — last 30 readings</div>
+    <div class="sparkline-grid">
+      <div><div class="sparkline-title" style="color:var(--phosphor)">O₂ (%vol)</div><canvas class="spark" id="sparkO2" height="60"></canvas><div class="spark-current" id="sO2"></div></div>
+      <div><div class="sparkline-title" style="color:var(--co2-color)">CO₂ (ppm)</div><canvas class="spark" id="sparkCO2" height="60"></canvas><div class="spark-current" id="sCO2"></div></div>
+      <div><div class="sparkline-title" style="color:var(--moisture)">Soil Moisture (%)</div><canvas class="spark" id="sparkMoist" height="60"></canvas><div class="spark-current" id="sMoist"></div></div>
+      <div><div class="sparkline-title" style="color:var(--light)">Light (lx)</div><canvas class="spark" id="sparkLight" height="60"></canvas><div class="spark-current" id="sLight"></div></div>
+    </div>
+  </div>
+
+  <!-- CAM -->
+  <div class="cam-panel">
+    <div class="cam-card">
+      <div class="cam-header">
+        <div class="cam-title"><div class="rec-dot"></div>ESP32-CAM Live Feed</div>
+        <div class="cam-controls">
+          <button class="cam-btn" title="Snapshot" onclick="snapShot()">📷</button>
+          <button class="cam-btn" title="Fullscreen" onclick="toggleFull()">⛶</button>
+        </div>
+      </div>
+      <div class="cam-feed-wrap" id="camWrap">
+        <img class="cam-feed" id="camFeed" src="" style="display:none" alt="ESP32-CAM">
+        <div class="cam-placeholder" id="camPlaceholder">
+          <div class="cam-placeholder-icon">📷</div>
+          <div class="cam-placeholder-text">Enter your ESP32-CAM<br>stream URL below</div>
+          <div class="scan-line"></div>
+        </div>
+      </div>
+      <div class="cam-footer">
+        <input class="cam-url-input" id="camUrl" type="text" placeholder="http://192.168.1.x:81/stream"/>
+        <button class="cam-load-btn" onclick="loadCam()">Load ▶</button>
+      </div>
+    </div>
+    <div class="log-card">
+      <div class="log-header">Event Log</div>
+      <div class="log-body" id="logBody"></div>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <div class="footer-left">Verdant EnviroMonitor · ESP32 + MH-Z19 · SEN0193 · BH1750 <span>· MJPEG CAM</span></div>
+  <div class="poll-rate">Poll: <span id="pollLabel">5 s</span></div>
+</footer>
+
+<!-- ══ FEEDBACK MODAL ══ -->
+<div class="modal-overlay" id="feedbackOverlay" onclick="overlayClick(event)">
+  <div class="modal" id="feedbackModal">
+    <button class="modal-close" onclick="closeFeedback()">✕</button>
+
+    <!-- form view -->
+    <div id="fbForm">
+      <div class="modal-logo">
+        <svg width="28" height="28" viewBox="0 0 38 38" fill="none">
+          <rect width="38" height="38" rx="9" fill="#0d1a0d"/>
+          <path d="M19 6 C19 6, 30 10, 30 20 C30 26, 25 31, 19 32 C13 31, 8 26, 8 20 C8 10, 19 6, 19 6Z" fill="none" stroke="#39ff6a" stroke-width="1.5"/>
+          <line x1="19" y1="32" x2="19" y2="14" stroke="#39ff6a" stroke-width="1.2" stroke-linecap="round"/>
+          <polyline points="19,22 14,18 11,18" stroke="#22c44a" stroke-width="1" stroke-linecap="round" fill="none"/>
+          <polyline points="19,18 24,15 27,15" stroke="#22c44a" stroke-width="1" stroke-linecap="round" fill="none"/>
+          <circle cx="11" cy="18" r="1.8" fill="#39ff6a"/>
+          <circle cx="27" cy="15" r="1.8" fill="#39ff6a"/>
+        </svg>
+        <span style="font-size:15px;font-weight:600;color:var(--text);">Share your feedback</span>
+      </div>
+
+      <div class="modal-sub">Your thoughts help make Verdant better for everyone.</div>
+
+      <div class="chips-label">How would you rate your experience?</div>
+      <div class="stars-row" id="starsRow">
+        <span class="star" data-v="1" onclick="setStar(1)">★</span>
+        <span class="star" data-v="2" onclick="setStar(2)">★</span>
+        <span class="star" data-v="3" onclick="setStar(3)">★</span>
+        <span class="star" data-v="4" onclick="setStar(4)">★</span>
+        <span class="star" data-v="5" onclick="setStar(5)">★</span>
+      </div>
+      <div class="star-label" id="starLabel">Tap a star to rate</div>
+
+      <div class="chips-label">What's this about?</div>
+      <div class="chips" id="chipsRow">
+        <span class="chip" onclick="toggleChip(this)">Sensor accuracy</span>
+        <span class="chip" onclick="toggleChip(this)">Camera feed</span>
+        <span class="chip" onclick="toggleChip(this)">UI / design</span>
+        <span class="chip" onclick="toggleChip(this)">Charts & history</span>
+        <span class="chip" onclick="toggleChip(this)">Connection issues</span>
+        <span class="chip" onclick="toggleChip(this)">Feature request</span>
+        <span class="chip" onclick="toggleChip(this)">Bug report</span>
+        <span class="chip" onclick="toggleChip(this)">Other</span>
+      </div>
+
+      <div class="fb-label">Tell us more</div>
+      <textarea class="fb-textarea" id="fbText" placeholder="What's working well? What could be improved? Any feature ideas?"></textarea>
+
+      <div class="ai-response" id="aiResponse">
+        <div class="ai-response-header">
+          <div class="ai-spinner" id="aiSpinner"></div>
+          <span id="aiResponseLabel">Verdant AI · Response</span>
+        </div>
+        <div class="ai-text" id="aiText"></div>
+      </div>
+
+      <div class="fb-actions">
+        <button class="fb-cancel" onclick="closeFeedback()">Cancel</button>
+        <button class="fb-submit" id="fbSubmit" onclick="submitFeedback()">Send Feedback</button>
+      </div>
+    </div>
+
+    <!-- success view -->
+    <div class="fb-success" id="fbSuccess">
+      <div class="fb-success-icon">🌿</div>
+      <div class="fb-success-title">Thanks for your feedback!</div>
+      <div class="fb-success-sub">Your input helps improve Verdant for everyone monitoring their environment.</div>
+      <button class="fb-submit" style="margin-top:24px;max-width:180px;margin-left:auto;margin-right:auto;display:block;" onclick="closeFeedback()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══ SENSOR STATE ══ */
+let esp32ip = '192.168.1.100';
+let apiBase = '';
+let pollMs  = 5000;
+let pollTimer = null;
+let connected = false;
+const histO2=[],histCO2=[],histMoist=[],histLight=[];
+const MAX_HIST=30;
+
+/* ── log ── */
+function log(msg,cls=''){
+  const now=new Date();
+  const ts=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const el=document.getElementById('logBody');
+  const line=document.createElement('div');
+  line.innerHTML=`<span class="ts">[${ts}]</span> <span class="${cls}">${msg}</span>`;
+  el.appendChild(line);
+  el.scrollTop=el.scrollHeight;
+  while(el.children.length>60)el.removeChild(el.firstChild);
+}
+
+/* ── connect ── */
+function connectESP32(){
+  esp32ip=document.getElementById('esp32ip').value.trim();
+  apiBase=`http://${esp32ip}`;
+  log(`Connecting to ${apiBase}…`);
+  startPolling();
+}
+function setPollRate(){
+  pollMs=parseInt(document.getElementById('pollSelect').value);
+  document.getElementById('pollLabel').textContent=pollMs/1000+' s';
+  if(connected)startPolling();
+}
+function startPolling(){
+  if(pollTimer)clearInterval(pollTimer);
+  fetchSensors();
+  pollTimer=setInterval(fetchSensors,pollMs);
+}
+async function fetchSensors(){
+  const path=document.getElementById('endpointPath').value||'/sensors';
+  try{
+    const res=await fetch(apiBase+path,{signal:AbortSignal.timeout(4000)});
+    if(!res.ok)throw new Error(`HTTP ${res.status}`);
+    const d=await res.json();
+    setConnected(true);
+    updateUI(d);
+  }catch(e){
+    setConnected(false);
+    log(`Fetch error: ${e.message}`,'err');
+    demoMode();
+  }
+}
+function demoMode(){
+  updateUI({
+    o2:(20.9+(Math.random()-0.5)*0.6).toFixed(1),
+    co2:Math.round(400+Math.random()*300),
+    moisture:Math.round(30+Math.random()*50),
+    light:Math.round(2000+Math.random()*60000)
+  },true);
+}
+function updateUI(d,demo=false){
+  const o2=parseFloat(d.o2),co2=parseFloat(d.co2),moist=parseFloat(d.moisture),light=parseFloat(d.light);
+  if(!isNaN(o2)){
+    document.getElementById('o2Val').textContent=o2.toFixed(1);
+    document.getElementById('o2Status').textContent=o2<19.5?'⚠ Low — ventilate':o2>21.5?'⚠ Elevated':'✓ Normal range';
+    const pct=Math.min(Math.max((o2/25)*100,0),100);
+    const circ=2*Math.PI*65;
+    const off=circ*(1-pct/100);
+    document.getElementById('ringFill').style.strokeDashoffset=off;
+    document.getElementById('ringGlow').style.strokeDashoffset=off;
+    document.getElementById('ringFill').style.stroke=o2<19.5?'var(--danger)':o2>21.5?'var(--warn)':'var(--phosphor)';
+    push(histO2,o2);
+  }
+  if(!isNaN(co2)){
+    document.getElementById('co2Val').textContent=co2.toFixed(0);
+    const badge=document.getElementById('co2Badge');
+    document.getElementById('co2Bar').style.width=Math.min((co2/5000)*100,100)+'%';
+    document.getElementById('co2BarLabel').textContent=co2.toFixed(0)+' ppm';
+    if(co2<1000){badge.className='threshold-label threshold-normal';badge.textContent='Normal';}
+    else if(co2<2000){badge.className='threshold-label threshold-warn';badge.textContent='Elevated';}
+    else{badge.className='threshold-label threshold-danger';badge.textContent='Danger';}
+    push(histCO2,co2);
+  }
+  if(!isNaN(moist)){
+    document.getElementById('moistureVal').textContent=moist.toFixed(0)+'%';
+    document.getElementById('moistureDesc').textContent=moist<20?'Dry — needs water':moist<60?'Adequate':'Saturated';
+    document.getElementById('moistureBar').style.width=Math.min(moist,100)+'%';
+    push(histMoist,moist);
+  }
+  if(!isNaN(light)){
+    document.getElementById('lightVal').textContent=light>=1000?(light/1000).toFixed(1)+'k lx':light.toFixed(0)+' lx';
+    document.getElementById('lightDesc').textContent=light<500?'Low — shade':light<20000?'Indoor / overcast':light<50000?'Bright':'Full sun';
+    document.getElementById('lightBar').style.width=Math.min((light/100000)*100,100)+'%';
+    push(histLight,light);
+  }
+  document.getElementById('sumO2').textContent=o2.toFixed(1)+' %vol';
+  document.getElementById('sumCO2').textContent=co2.toFixed(0)+' ppm';
+  document.getElementById('sumMoist').textContent=moist.toFixed(0)+'%';
+  document.getElementById('sumLight').textContent=light>=1000?(light/1000).toFixed(1)+'k lx':light.toFixed(0)+' lx';
+  document.getElementById('lastUpdate').textContent=new Date().toLocaleTimeString();
+  if(!demo)log(`O₂=${o2}% CO₂=${co2}ppm M=${moist}% L=${light}lx`,'ok');
+  drawSparks();
+}
+function push(arr,val){arr.push(val);if(arr.length>MAX_HIST)arr.shift();}
+function drawSparks(){
+  drawSpark('sparkO2',histO2,'#39ff6a',18,24,'%');
+  drawSpark('sparkCO2',histCO2,'#4eb5ff',350,5000,' ppm');
+  drawSpark('sparkMoist',histMoist,'#45d4fa',0,100,'%');
+  drawSpark('sparkLight',histLight,'#ffe066',0,100000,' lx');
+}
+function drawSpark(id,data,color,mn,mx,unit){
+  const canvas=document.getElementById(id);if(!canvas)return;
+  const W=canvas.offsetWidth||200,H=60;
+  canvas.width=W*devicePixelRatio;canvas.height=H*devicePixelRatio;
+  const ctx=canvas.getContext('2d');ctx.scale(devicePixelRatio,devicePixelRatio);
+  ctx.clearRect(0,0,W,H);
+  if(data.length<2){ctx.fillStyle='#1f2e1c';ctx.fillRect(0,0,W,H);return;}
+  const pad=4,range=mx-mn||1;
+  const toY=v=>H-pad-((v-mn)/range)*(H-pad*2);
+  ctx.beginPath();ctx.moveTo(0,H);
+  data.forEach((v,i)=>{const x=(i/(MAX_HIST-1))*W;i===0?ctx.lineTo(x,toY(v)):ctx.lineTo(x,toY(v));});
+  ctx.lineTo(W,H);ctx.closePath();
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,color+'44');g.addColorStop(1,color+'00');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.beginPath();
+  data.forEach((v,i)=>{const x=(i/(MAX_HIST-1))*W;i===0?ctx.moveTo(x,toY(v)):ctx.lineTo(x,toY(v));});
+  ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.lineJoin='round';
+  ctx.shadowBlur=6;ctx.shadowColor=color;ctx.stroke();ctx.shadowBlur=0;
+  const last=data[data.length-1],lx=((data.length-1)/(MAX_HIST-1))*W,ly=toY(last);
+  ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fillStyle=color;
+  ctx.shadowBlur=8;ctx.shadowColor=color;ctx.fill();ctx.shadowBlur=0;
+  const labelId=id.replace('spark','s');
+  const lel=document.getElementById(labelId);
+  if(lel){lel.style.color=color;lel.textContent=last>=1000&&unit===' lx'?(last/1000).toFixed(1)+'k'+unit:last.toFixed(unit==='%'?1:0)+unit;}
+}
+function loadCam(){
+  const url=document.getElementById('camUrl').value.trim();if(!url)return;
+  const img=document.getElementById('camFeed'),ph=document.getElementById('camPlaceholder');
+  img.src=url;img.style.display='block';ph.style.display='none';
+  img.onerror=()=>{img.style.display='none';ph.style.display='flex';log('CAM stream error — check URL/IP','err');};
+  log(`CAM stream → ${url}`,'ok');
+}
+function snapShot(){
+  const img=document.getElementById('camFeed');
+  if(!img.src||img.style.display==='none'){log('No active stream to snapshot','warn');return;}
+  const c=document.createElement('canvas');c.width=img.naturalWidth||img.width;c.height=img.naturalHeight||img.height;
+  c.getContext('2d').drawImage(img,0,0);
+  const a=document.createElement('a');a.download=`snap_${Date.now()}.png`;a.href=c.toDataURL();a.click();
+  log('Snapshot saved','ok');
+}
+function toggleFull(){
+  const w=document.getElementById('camWrap');
+  if(!document.fullscreenElement)w.requestFullscreen?.();else document.exitFullscreen?.();
+}
+function setConnected(v){
+  connected=v;
+  document.getElementById('statusDot').className='status-dot'+(v?'':' offline');
+  document.getElementById('statusText').textContent=v?'Live':'Disconnected';
+}
+
+/* ══ FEEDBACK ══ */
+let starRating=0;
+
+function openFeedback(){
+  document.getElementById('feedbackOverlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeFeedback(){
+  document.getElementById('feedbackOverlay').classList.remove('open');
+  document.body.style.overflow='';
+  // reset after close animation
+  setTimeout(resetFeedback,300);
+}
+function overlayClick(e){if(e.target===document.getElementById('feedbackOverlay'))closeFeedback();}
+function resetFeedback(){
+  starRating=0;
+  document.querySelectorAll('.star').forEach(s=>s.classList.remove('active'));
+  document.getElementById('starLabel').textContent='Tap a star to rate';
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('selected'));
+  document.getElementById('fbText').value='';
+  document.getElementById('aiResponse').classList.remove('visible');
+  document.getElementById('aiText').textContent='';
+  document.getElementById('aiSpinner').classList.remove('active');
+  document.getElementById('fbSubmit').disabled=false;
+  document.getElementById('fbSubmit').textContent='Send Feedback';
+  document.getElementById('fbForm').style.display='block';
+  document.getElementById('fbSuccess').classList.remove('visible');
+}
+
+const starLabels=['','Needs work','Could be better','It\'s okay','Pretty good','Love it!'];
+function setStar(n){
+  starRating=n;
+  document.querySelectorAll('.star').forEach(s=>{
+    s.classList.toggle('active',parseInt(s.dataset.v)<=n);
+  });
+  document.getElementById('starLabel').textContent=starLabels[n];
+}
+function toggleChip(el){el.classList.toggle('selected');}
+
+async function submitFeedback(){
+  const text=document.getElementById('fbText').value.trim();
+  const chips=[...document.querySelectorAll('.chip.selected')].map(c=>c.textContent);
+
+  if(!starRating&&!text&&!chips.length){
+    document.getElementById('fbText').style.borderColor='var(--warn)';
+    setTimeout(()=>document.getElementById('fbText').style.borderColor='',1800);
+    return;
+  }
+
+  const btn=document.getElementById('fbSubmit');
+  btn.disabled=true; btn.textContent='Sending…';
+
+  // show AI thinking
+  const aiBox=document.getElementById('aiResponse');
+  const aiSpinner=document.getElementById('aiSpinner');
+  const aiText=document.getElementById('aiText');
+  aiBox.classList.add('visible');
+  aiSpinner.classList.add('active');
+  document.getElementById('aiResponseLabel').textContent='Verdant AI · thinking…';
+  aiText.textContent='';
+
+  // build prompt for Claude
+  const ratingStr=starRating?`${starRating}/5 stars (${starLabels[starRating]})`:'Not rated';
+  const categoriesStr=chips.length?chips.join(', '):'None selected';
+  const commentStr=text||'No additional comments.';
+
+  const prompt=`You are the friendly support assistant for Verdant, an ESP32 environmental monitoring dashboard that tracks O2, CO2, soil moisture, and light levels via browser. A user just submitted feedback.
+
+Rating: ${ratingStr}
+Categories: ${categoriesStr}
+Comment: "${commentStr}"
+
+Write a warm, genuine, concise response (3-5 sentences max) that:
+1. Acknowledges their specific feedback naturally
+2. If they raised an issue or request, briefly mention it's noted for the team
+3. If it's positive, show authentic appreciation without being sycophantic
+4. Ends with one forward-looking sentence about Verdant
+
+Keep the tone human and direct. No bullet points. No markdown. Plain text only.`;
+
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:1000,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    const data=await res.json();
+    const reply=data.content?.map(b=>b.text||'').join('')||'Thanks so much for taking the time to share your thoughts with us!';
+    aiSpinner.classList.remove('active');
+    document.getElementById('aiResponseLabel').textContent='Verdant · Response';
+    // typewriter
+    let i=0;
+    const type=()=>{if(i<reply.length){aiText.textContent+=reply[i++];setTimeout(type,18);}};
+    type();
+
+    // after typing done, show success
+    setTimeout(()=>{
+      document.getElementById('fbForm').style.display='none';
+      document.getElementById('fbSuccess').classList.add('visible');
+      log('Feedback submitted','ok');
+    }, reply.length*18+1200);
+
+  }catch(e){
+    aiSpinner.classList.remove('active');
+    aiText.textContent='Thanks for your feedback — we\'ve received it and the team will take a look.';
+    document.getElementById('aiResponseLabel').textContent='Verdant · Response';
+    setTimeout(()=>{
+      document.getElementById('fbForm').style.display='none';
+      document.getElementById('fbSuccess').classList.add('visible');
+    },2000);
+  }
+}
+
+/* ── boot ── */
+log('Verdant EnviroMonitor ready','ok');
+log('Enter ESP32 IP and press Connect','');
+log('Running demo data until connected…','warn');
+demoMode();
+setInterval(()=>{if(!connected)demoMode();},5000);
+</script>
+</body>
+</html>
